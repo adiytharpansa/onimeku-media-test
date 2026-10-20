@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uji Putar V3</title>
+<style>
+  body { margin:0; background:#0F1018; color:#fff; font-family:sans-serif; }
+  header { padding:12px 16px; font-size:18px; font-weight:600; }
+  video { width:100%; background:#000; }
+  #hud { padding:8px 16px; font-size:14px; color:#7ee2a8; }
+  #status { padding:6px 16px 16px; font-size:13px; color:#A6A8B5; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>Uji Putar V3 — Chainsaw Man Ep.7 (multi-kualitas, multi-pintu)</header>
+<video id="v" controls playsinline preload="auto"></video>
+<div id="hud">Pintu aktif: - | Kualitas aktif: -</div>
+<div id="status">Memuat…</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+  var H = "a9f08cb5d37243670e1c0e1773f6ae92eeadcdc0";
+  var DOORS = [
+    { name: "jsDelivr",        url: "https://cdn.jsdelivr.net/gh/adiytharpansa/onimeku-media-test@" + H + "/pilot2/master.m3u8" },
+    { name: "jsDelivr Fastly", url: "https://fastly.jsdelivr.net/gh/adiytharpansa/onimeku-media-test@" + H + "/pilot2/master.m3u8" },
+    { name: "jsDelivr Gcore",  url: "https://gcore.jsdelivr.net/gh/adiytharpansa/onimeku-media-test@" + H + "/pilot2/master.m3u8" },
+    { name: "GitHack",         url: "https://rawcdn.githack.com/adiytharpansa/onimeku-media-test/" + H + "/pilot2/master.m3u8" },
+    { name: "GitHub Raw",      url: "https://raw.githubusercontent.com/adiytharpansa/onimeku-media-test/" + H + "/pilot2/master.m3u8" }
+  ];
+
+  var video = document.getElementById('v');
+  var statusEl = document.getElementById('status');
+  var hud = document.getElementById('hud');
+  var t0 = Date.now();
+  var doorIdx = 0;
+  var switches = 0;
+  var hls = null;
+  var currentQuality = "-";
+  var firstBuffered = false;
+
+  function log(msg) { statusEl.textContent += "\n" + msg; }
+  function setHud() {
+    hud.textContent = "Pintu aktif: " + DOORS[doorIdx].name + " | Kualitas aktif: " + currentQuality;
+  }
+
+  function startPlayer(resumeTime) {
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+    var myDoor = doorIdx;
+    var recovered = false;
+    hls = new Hls({
+      enableWorker: true,
+      maxBufferLength: 30,
+      manifestLoadingMaxRetry: 2,
+      levelLoadingMaxRetry: 3,
+      fragLoadingMaxRetry: 4,
+      startLevel: -1,
+      autoStartLoad: false
+    });
+    var myHls = hls;
+    myHls.loadSource(DOORS[myDoor].url);
+    myHls.attachMedia(video);
+    myHls.on(Hls.Events.MANIFEST_PARSED, function() {
+      log("Manifest terbaca dari " + DOORS[myDoor].name + " dalam " +
+          ((Date.now() - t0) / 1000).toFixed(1) + " dtk.");
+      myHls.startLoad(resumeTime && resumeTime > 0 ? resumeTime : -1);
+      var p = video.play();
+      if (p && p.catch) { p.catch(function() { log("Sentuh tombol Play untuk mulai."); }); }
+    });
+    myHls.on(Hls.Events.LEVEL_SWITCHED, function(e, data) {
+      var lv = myHls.levels[data.level];
+      if (lv) {
+        currentQuality = lv.height + "p (" + Math.round(lv.bitrate / 1000) + " kbps)";
+        setHud();
+        log("Kualitas -> " + currentQuality);
+      }
+    });
+    myHls.on(Hls.Events.FRAG_BUFFERED, function() {
+      if (!firstBuffered) {
+        firstBuffered = true;
+        log("Cuplikan pertama ter-buffer pada " + ((Date.now() - t0) / 1000).toFixed(1) + " dtk.");
+      }
+    });
+    myHls.on(Hls.Events.ERROR, function(e, data) {
+      if (!data || !data.fatal) { return; }
+      log("GALAT FATAL di " + DOORS[myDoor].name + ": " + data.type + " / " + data.details);
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        if (switches < DOORS.length - 1) {
+          var resume = video.currentTime || 0;
+          switches++;
+          doorIdx = (doorIdx + 1) % DOORS.length;
+          log("Pindah pintu -> " + DOORS[doorIdx].name + " (pintu ke-" + (switches + 1) +
+              " dari " + DOORS.length + "), lanjut dari posisi " + resume.toFixed(0) + " dtk.");
+          setHud();
+          startPlayer(resume);
+        } else {
+          log("Semua pintu sudah dicoba — putar gagal total.");
+        }
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) {
+        recovered = true;
+        log("Galat media — mencoba memulihkan…");
+        try { myHls.recoverMediaError(); } catch (e) {}
+      }
+    });
+  }
+
+  if (window.Hls && Hls.isSupported()) {
+    startPlayer(0);
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = DOORS[0].url;
+    log("Memakai HLS bawaan peramban (tanpa logika multi-pintu).");
+  } else {
+    log("Peramban tidak mendukung HLS.");
+  }
+  video.addEventListener('loadedmetadata', function() {
+    log("Metadata: durasi " + video.duration.toFixed(0) + " dtk.");
+  });
+  setHud();
+</script>
+</body>
+</html>
